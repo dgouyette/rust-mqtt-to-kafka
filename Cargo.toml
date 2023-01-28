@@ -8,4 +8,16 @@ ctrlc = "3.2.4"
 kafka = "0.9.0"
 paho-mqtt = "0.12.0"
 openssl = { version = "0.10.35", features = ["vendored"] }
+rdkafka = { version = "0.25", features = ["cmake-build","ssl"] }
 
+[dependencies.uuid]
+version = "1.2.2"
+features = [
+    "v4",                # Lets you generate random UUIDs
+    "fast-rng",          # Use a faster (but still sufficiently random) RNG
+    "macro-diagnostics", # Enable better diagnostics for compile-time UUIDs
+]
+
+
+[target.x86_64-unknown-linux-musl]
+linker = "x86_64-linux-gnu-gcc"

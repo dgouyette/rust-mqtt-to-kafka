@@ -1,11 +1,16 @@
 use std::{env, process, thread};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use ctrlc;
-use kafka::error::Error as KafkaError;
-use kafka::producer::{Producer, Record, RequiredAcks};
+use kafka::producer::AsBytes;
 use paho_mqtt as mqtt;
+use uuid::Uuid;
+
+use rdkafka::config::ClientConfig;
+use rdkafka::message::{OwnedHeaders};
+use rdkafka::producer::{BaseProducer, BaseRecord, FutureProducer, FutureRecord, Producer};
+use rdkafka::util::get_rdkafka_version;
 
 fn try_reconnect(cli: &mqtt::Client) -> bool {
     println!("Connection lost. Waiting to retry connection");
@@ -20,33 +25,9 @@ fn try_reconnect(cli: &mqtt::Client) -> bool {
     false
 }
 
-fn produce_message(
-    data: &[u8],
-    topic: &str,
-    brokers: Vec<String>,
-) -> Result<(), KafkaError> {
-    //println!("About to publish a message at {:?} to: {}", brokers, topic);
 
-    // ~ create a producer. this is a relatively costly operation, so
-    // you'll do this typically once in your application and re-use
-    // the instance many times.
-    let mut producer = Producer::from_hosts(brokers)
-        // ~ give the brokers one second time to ack the message
-        .with_ack_timeout(Duration::from_secs(1))
-        // ~ require only one broker to ack the message
-        .with_required_acks(RequiredAcks::One)
-        // ~ build the producer with the above settings
-        .create()?;
-
-
-    producer.send(&Record::from_value(topic, data))?;
-
-    Ok(())
-}
 
 fn main() {
-    let broker = "192.168.1.29:9092";
-
     let host = env::args()
         .nth(1)
         .unwrap_or_else(|| "mqtt://192.168.1.29:1883".to_string());
@@ -120,29 +101,40 @@ fn main() {
         .expect("Error setting Ctrl-C handler");
 
 
+
+    let producer: &BaseProducer = &ClientConfig::new()
+        .set("bootstrap.servers", "192.168.1.29:9092")
+        .set("message.timeout.ms", "5000")
+        .create()
+        .expect("Producer creation error");
+
+
     let mapping = HashMap::from([
         ("Production/metrics/W", "production_w"),
         ("Consommation/metrics/ActivatePower", "consommation_w"),
         ("Consommation/metrics/ImportEnergy", "import_w"),
         ("Consommation/metrics/ExportEnergy", "export_w"),
     ]);
+    let now = SystemTime::now().elapsed().unwrap().as_millis() as i64;
 
     println!("\nWaiting for messages on topics {:?}...", subscriptions);
     for msg in rx.iter() {
         if let Some(msg) = msg {
             if let Some(topic) = mapping.get(msg.topic()) {
-                if let Ok(_) = produce_message(msg.payload_str().as_bytes(), topic, vec![broker.to_owned()]) {
-                    println!("{topic}:{}", msg.payload_str());
-                }
+
+                let id = Uuid::new_v4();
+
+                let delivery_status = producer
+                    .send(
+                        BaseRecord::to(topic)
+                            .payload(msg.payload())
+                            .timestamp(now)
+                            .key(id.as_bytes())
+                    );
+                println!("topic {}  msg {}", topic, msg.payload_str());
             }
         } else if cli.is_connected() || !try_reconnect(&cli) {
             break;
         }
-    }
-
-
-    if cli.is_connected() {
-        println!("\nDisconnecting...");
-        cli.disconnect(None).unwrap();
     }
 }
