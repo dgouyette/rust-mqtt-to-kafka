@@ -3,14 +3,11 @@ use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
 use ctrlc;
-use kafka::producer::AsBytes;
 use paho_mqtt as mqtt;
 use uuid::Uuid;
 
 use rdkafka::config::ClientConfig;
-use rdkafka::message::{OwnedHeaders};
-use rdkafka::producer::{BaseProducer, BaseRecord, FutureProducer, FutureRecord, Producer};
-use rdkafka::util::get_rdkafka_version;
+use rdkafka::producer::{BaseProducer, BaseRecord};
 
 fn try_reconnect(cli: &mqtt::Client) -> bool {
     println!("Connection lost. Waiting to retry connection");
@@ -124,14 +121,14 @@ fn main() {
 
                 let id = Uuid::new_v4();
 
-                let delivery_status = producer
+                let _ = producer
                     .send(
                         BaseRecord::to(topic)
-                            .payload(msg.payload())
+                            .payload(&format!("{}", msg.payload_str()))
                             .timestamp(now)
-                            .key(id.as_bytes())
+                            .key(&format!("{}", id.to_string()))
                     );
-                println!("topic {}  msg {}", topic, msg.payload_str());
+                println!("topic {}  msg {} status", topic, msg.payload_str());
             }
         } else if cli.is_connected() || !try_reconnect(&cli) {
             break;
